@@ -1,0 +1,2 @@
+main_BK : _TTE res 192 (epoch 3000, GPU 4, brain2021 lr 1e-5)
+main_BK2 : _TTE res 192 (epoch 3000, GPU 4, brain2021_2 lr 2e-3)

@@ -1,0 +1,20 @@
+data_root: /data/jionkim/_TTE_images_res_192/
+
+trainer:
+  num_epochs: 3000
+  warmup: 5
+  train_ratio: 0.8
+  batch_size: 1
+  lr: 0.002
+  min_lr: 0.0000002
+  optimizer: adamw
+  weight_decay: 0.05
+  weight_decay_end: 0.04
+  momentum_teacher: 0.996
+  pred_ratio_var: 0
+  num_workers: 16
+  image_size: 192
+  resume: False
+
+finetune:
+  checkpoint: brain2021_4
