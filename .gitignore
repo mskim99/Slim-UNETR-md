@@ -1,3 +1,7 @@
 .DS_Store
 *.pth
 output/
+logs_*.txt
+figures/
+.git/
+.idea/
