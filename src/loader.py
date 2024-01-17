@@ -52,6 +52,7 @@ class ConvertToMultiChannelClassesd(monai.transforms.MapTransform):
 
 def load_dataset_images(root):
     images_list = []
+
     for i in range (0, 267):
         img = root + "image/image_" + str(i).zfill(3) + ".nii.gz"
         seg_img = root + "label/label_" + str(i).zfill(3) + ".nii.gz"
@@ -59,6 +60,13 @@ def load_dataset_images(root):
             {"image": img, "label": seg_img}
         )
     '''
+    for i in range(0, 40):
+        img = "J:\\Dataset\\TEE-Labeling\\_TTE_images\\image\\nii_gz_128\\image_" + str(i).zfill(3) + ".nii.gz"
+        seg_img = "J:\\Dataset\\TEE-Labeling\\_TTE_images\\label\\nii_gz_128\\label_" + str(i).zfill(3) + ".nii.gz"
+        images_list.append(
+            {"image": img, "label": seg_img}
+        )
+
     for i in range(0, 15):
         img = root + "image/1_label_" + str(i).zfill(3) + "_nm.nii.gz"
         seg_img = root + "label/1_label_" + str(i).zfill(3) + ".nii.gz"
@@ -66,6 +74,32 @@ def load_dataset_images(root):
             {"image": img, "label": seg_img}
         )
         '''
+    return images_list
+
+# Saparate train images to load > get_dataloader_sap()
+def load_dataset_train_images_sap(root):
+    images_list = []
+
+    for i in range (0, 221):
+        img = root + "train/image/image_" + str(i).zfill(3) + ".nii.gz"
+        seg_img = root + "train/label/label_" + str(i).zfill(3) + ".nii.gz"
+        images_list.append(
+            {"image": img, "label": seg_img}
+        )
+
+    return images_list
+
+# Saparate test images to load > get_dataloader_sap()
+def load_dataset_test_images_sap(root):
+    images_list = []
+
+    for i in range(0, 46):
+        img = root + "test/image/image_" + str(i).zfill(3) + ".nii.gz"
+        seg_img = root + "test/label/label_" + str(i).zfill(3) + ".nii.gz"
+        images_list.append(
+            {"image": img, "label": seg_img}
+        )
+
     return images_list
 
 
@@ -200,3 +234,40 @@ def get_dataloader_val_only(
     )
 
     return val_loader
+
+# Saparate train images and test images in different directory
+def get_dataloader_sap(
+    config: EasyDict
+) -> Tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
+
+    train_images = load_dataset_train_images_sap(config.data_root)
+    test_images = load_dataset_test_images_sap(config.data_root)
+
+    train_transform, val_transform = get_transforms(config)
+
+    train_dataset = monai.data.Dataset(
+        data=train_images,
+        transform=train_transform,
+    )
+    val_dataset = monai.data.Dataset(
+        data=test_images,
+        transform=val_transform,
+    )
+
+    train_loader = monai.data.DataLoader(
+        train_dataset,
+        num_workers=config.trainer.num_workers,
+        batch_size=config.trainer.batch_size,
+        shuffle=True,
+    )
+
+    batch_size = config.trainer.batch_size
+
+    val_loader = monai.data.DataLoader(
+        val_dataset,
+        num_workers=config.trainer.num_workers,
+        batch_size=batch_size,
+        shuffle=False,
+    )
+
+    return train_loader, val_loader
