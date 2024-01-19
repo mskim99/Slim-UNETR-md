@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Dict
 
 import monai
-import pytz
 import torch
 import yaml
 from accelerate import Accelerator
@@ -19,6 +18,8 @@ from src.optimizer import LinearWarmupCosineAnnealingLR
 from src.SlimUNETR.SlimUNETR import SlimUNETR
 from src.utils import Logger, load_pretrain_model
 
+from skimage.transform import resize
+
 best_acc = 0
 best_class = []
 
@@ -29,8 +30,6 @@ def warm_up(
     train_loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler._LRScheduler,
-    metrics: Dict[str, monai.metrics.CumulativeIterationMetric],
-    post_trans: monai.transforms.Compose,
     accelerator: Accelerator,
     epoch: int,
     step: int,
@@ -65,13 +64,13 @@ def warm_up(
 @torch.no_grad()
 def val_one_epoch(
     model: torch.nn.Module,
-    config: EasyDict,
     inference: monai.inferers.Inferer,
     val_loader: torch.utils.data.DataLoader,
     metrics: Dict[str, monai.metrics.CumulativeIterationMetric],
     step: int,
     post_trans: monai.transforms.Compose,
     accelerator: Accelerator,
+    upsample: bool
 ):
     # inference
     model.eval()
@@ -82,9 +81,47 @@ def val_one_epoch(
     for i, image_batch in enumerate(val_loader):
         logits = inference(image_batch["image"], model)
         val_outputs = [post_trans(i) for i in logits]
-        # print(val_outputs.shape)
+        val_outputs_ups = []
+
+        # print(val_outputs.__len__())
+        # print(val_outputs[0].shape)
+
+        # Upsample to 256
+        if upsample:
+            for val_output in val_outputs:
+                lab_res_stores = torch.zeros(val_output.shape[0], 256, 256, 256)
+                # print(lab_res_stores.shape)
+                # print(val_output.__len__())
+
+                for j in range(0, val_output.shape[0]):
+
+                    vo_np = val_output[j, :, :, :].detach().cpu().numpy()
+                    lab_reshape = resize(vo_np, (256, 256, 256),
+                                           mode='edge',
+                                           anti_aliasing=False,
+                                           anti_aliasing_sigma=None,
+                                           preserve_range=True,
+                                           order=0)
+                    # print(lab_reshape.shape)
+
+                    lab_res_store = torch.zeros([256, 256, 256])
+                    lab_res_store[lab_reshape > 1e-5] = 1
+                    lab_res_stores[j] = lab_res_store
+
+                lab_res_stores = lab_res_stores.cuda()
+                val_outputs_ups.append(lab_res_stores)
+        '''
+        print(val_outputs_ups.__len__())
+        print(val_outputs_ups[0].shape)
+        print(val_outputs_ups[0][0, :, :, :].max())
+        print(val_outputs_ups[0][1, :, :, :].max())
+        '''
+
         for metric_name in metrics:
-            metrics[metric_name](y_pred=val_outputs, y=image_batch["label"])
+            if upsample:
+                metrics[metric_name](y_pred=val_outputs_ups, y=image_batch["label"])
+            else:
+                metrics[metric_name](y_pred=val_outputs, y=image_batch["label"])
 
         accelerator.print(f"dice: {metrics['dice_metric'].get_buffer()}")
         accelerator.print(f"[{i + 1}/{len(val_loader)}] Validation Loading", flush=True)
@@ -129,7 +166,7 @@ def val_one_epoch(
 
 if __name__ == "__main__":
 
-    device_num = 4
+    device_num = 3
     torch.cuda.set_device(device_num)
 
     # load yml
@@ -149,7 +186,7 @@ if __name__ == "__main__":
         in_channels=1,
         out_channels=2,
         embed_dim=96,
-        embedding_dim=216,
+        embedding_dim=64,
         channels=(24, 48, 60),
         blocks=(1, 2, 3, 2),
         heads=(1, 2, 4, 4),
@@ -230,8 +267,6 @@ if __name__ == "__main__":
         train_loader,
         optimizer,
         scheduler,
-        metrics,
-        post_trans,
         accelerator,
         0,
         step,
@@ -243,13 +278,13 @@ if __name__ == "__main__":
 
     dice_acc, dice_class, hd95_acc, hd95_class = val_one_epoch(
         model,
-        config,
         inference,
         val_loader,
         metrics,
         val_step,
         post_trans,
         accelerator,
+        False,
     )
     accelerator.save_state(
         # output_dir=f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/best/new/"

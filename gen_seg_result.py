@@ -1,10 +1,8 @@
 import os
 import sys
 from datetime import datetime
-from typing import Dict
 
 import monai
-import pytz
 import torch
 import yaml
 import time
@@ -12,57 +10,19 @@ from accelerate import Accelerator
 from easydict import EasyDict
 from monai.utils import ensure_tuple_rep
 from objprint import objstr
-from timm.optim import optim_factory
 import numpy as np
+import nibabel as nib
+import nrrd
 
 from src import utils
-from src.loader import get_dataloader, get_dataloader_val_only
-from src.optimizer import LinearWarmupCosineAnnealingLR
+from src.loader import get_dataloader
 from src.SlimUNETR.SlimUNETR import SlimUNETR
 from src.utils import Logger, load_pretrain_model
 
+from skimage.transform import resize
+
 best_acc = 0
 best_class = []
-
-'''
-def warm_up(
-    model: torch.nn.Module,
-    loss_functions: Dict[str, torch.nn.modules.loss._Loss],
-    train_loader: torch.utils.data.DataLoader,
-    optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler._LRScheduler,
-    metrics: Dict[str, monai.metrics.CumulativeIterationMetric],
-    post_trans: monai.transforms.Compose,
-    accelerator: Accelerator,
-    epoch: int,
-    step: int,
-):
-    # warm_up
-    model.train()
-    accelerator.print(f"Start Warn Up!")
-    for i, image_batch in enumerate(train_loader):
-        logits = model(image_batch["image"])
-        total_loss = 0
-        # log = ""
-        for name in loss_functions:
-            alpth = 1
-            loss = loss_functions[name](logits, image_batch["label"])
-            accelerator.log({"Train/" + name: float(loss)}, step=step)
-            total_loss += alpth * loss
-        accelerator.backward(total_loss)
-        optimizer.step()
-        optimizer.zero_grad()
-        accelerator.log(
-            {
-                "Train/Total Loss": float(total_loss),
-            },
-            step=step,
-        )
-        step += 1
-    scheduler.step(epoch)
-    accelerator.print(f"Warn Up Over!")
-    return step
-    '''
 
 @torch.no_grad()
 def gen_seg_result(
@@ -74,47 +34,53 @@ def gen_seg_result(
     step: int,
     post_trans: monai.transforms.Compose,
     accelerator: Accelerator,
+    upsample: bool
 ):
     start = time.time()
     # inference
     time_accum = 0
     model.eval()
-    '''
-    dice_acc = 0
-    dice_class = []
-    hd95_acc = 0
-    hd95_class = []
-    '''
+
     for i, image_batch in enumerate(val_loader):
-        '''
-        print(image_batch["image"][0].shape)
-        print(image_batch["label"][0].shape)
-        '''
+
         logits = inference(image_batch["image"], model)
         val_outputs = [post_trans(i) for i in logits]
+        val_outputs_ups = []
+
+        if upsample:
+            for val_output in val_outputs:
+                lab_res_stores = torch.zeros(val_output.shape[0], 256, 256, 256)
+
+                for j in range(0, val_output.shape[0]):
+
+                    vo_np = val_output[j, :, :, :].detach().cpu().numpy()
+                    lab_reshape = resize(vo_np, (256, 256, 256),
+                                           mode='edge',
+                                           anti_aliasing=False,
+                                           anti_aliasing_sigma=None,
+                                           preserve_range=True,
+                                           order=0)
+
+                    lab_res_store = torch.zeros([256, 256, 256])
+                    lab_res_store[lab_reshape > 1e-5] = 1
+                    lab_res_stores[j] = lab_res_store
+
+                lab_res_stores = lab_res_stores.cuda()
+                val_outputs_ups.append(lab_res_stores)
+
         img = image_batch["image"][0][0, :, :, :].cpu().detach().numpy()
-        lab1_gen = val_outputs[0][0, :, :, :].cpu().detach().numpy().astype(bool)
-        lab2_gen = val_outputs[0][1, :, :, :].cpu().detach().numpy().astype(bool)
-        lab1_gt = image_batch["label"][0][0, :, :, :].cpu().detach().numpy().astype(bool)
-        lab2_gt = image_batch["label"][0][1, :, :, :].cpu().detach().numpy().astype(bool)
-        '''
-        np.save('./interference/intf_img_' + str(i).zfill(2) + '.npy', img)
-        np.save('./interference/intf_lab1_gen_' + str(i).zfill(2) + '.npy', lab1_gen)
-        np.save('./interference/intf_lab2_gen_' + str(i).zfill(2) + '.npy', lab2_gen)
-        np.save('./interference/intf_lab1_gt_' + str(i).zfill(2) + '.npy', lab1_gt)
-        np.save('./interference/intf_lab2_gt_' + str(i).zfill(2) + '.npy', lab2_gt)
-        '''
+        if upsample:
+            img = resize(img, (256, 256, 256))
+            lab_gen = val_outputs_ups[0].cpu().detach().numpy().astype(bool)
+        else:
+            lab_gen = val_outputs[0].cpu().detach().numpy().astype(bool)
 
-        np.save('/data/jionkim/Slim_UNETR/inference/intf_img_' + str(i).zfill(2) + '.npy', img)
-        np.save('/data/jionkim/Slim_UNETR/inference/intf_lab1_gen_' + str(i).zfill(2) + '.npy', lab1_gen)
-        np.save('/data/jionkim/Slim_UNETR/inference/intf_lab2_gen_' + str(i).zfill(2) + '.npy', lab2_gen)
-        np.save('/data/jionkim/Slim_UNETR/inference/intf_lab1_gt_' + str(i).zfill(2) + '.npy', lab1_gt)
-        np.save('/data/jionkim/Slim_UNETR/inference/intf_lab2_gt_' + str(i).zfill(2) + '.npy', lab2_gt)
+        lab_gt = image_batch["label"][0].cpu().detach().numpy().astype(bool)
 
-        '''
-        for metric_name in metrics:
-            metrics[metric_name](y_pred=val_outputs, y=image_batch["label"])
-            '''
+        np.save('./inference/intf_img_' + str(i).zfill(2) + '.npy', img)
+        np.save('./inference/intf_lab_gen_' + str(i).zfill(2) + '.npy', lab_gen)
+        np.save('./inference/intf_lab_gt_' + str(i).zfill(2) + '.npy', lab_gt)
+
         accelerator.print(f"[{i + 1}/{len(val_loader)}] Validation Loading", flush=True)
         step += 1
 
@@ -122,49 +88,14 @@ def gen_seg_result(
     done = time.time()
     elapsed = done - start
     print(elapsed)
-    '''
-    metric = {}
-
-    for metric_name in metrics:
-        batch_acc = metrics[metric_name].aggregate()
-        if accelerator.num_processes > 1:
-            batch_acc = (
-                    accelerator.reduce(batch_acc.to(accelerator.device))
-                    / accelerator.num_processes
-            )
-        metrics[metric_name].reset()
-        if metric_name == "dice_metric":
-            metric.update(
-                {
-                    f"Val/mean {metric_name}": float(batch_acc.mean()),
-                    f"Val/label1 {metric_name}": float(batch_acc[0]),
-                    f"Val/label2 {metric_name}": float(batch_acc[1]),
-                }
-            )
-            dice_acc = torch.Tensor([metric["Val/mean dice_metric"]]).to(
-                accelerator.device
-            )
-            dice_class = batch_acc
-        else:
-            metric.update(
-                {
-                    f"Val/mean {metric_name}": float(batch_acc.mean()),
-                    f"Val/label1 {metric_name}": float(batch_acc[0]),
-                    f"Val/label2 {metric_name}": float(batch_acc[1]),
-                }
-            )
-            hd95_acc = torch.Tensor([metric["Val/mean hd95_metric"]]).to(
-                accelerator.device
-            )
-            hd95_class = batch_acc
-
-    return dice_acc, dice_class, hd95_acc, hd95_class
-    '''
 
 if __name__ == "__main__":
 
+    print(torch.cuda.is_available())
+
     start = time.time()
-    device_num = 4
+
+    device_num = 1
     torch.cuda.set_device(device_num)
 
     # load yml
@@ -173,9 +104,9 @@ if __name__ == "__main__":
     )
 
     utils.same_seeds(50)
-    logging_dir = os.getcwd() + "/logs/" + str(datetime.now())
+    # logging_dir = os.getcwd() + "/logs/" + str(datetime.now())
     accelerator = Accelerator(cpu=False)
-    Logger(logging_dir if accelerator.is_local_main_process else None)
+    # Logger(logging_dir if accelerator.is_local_main_process else None)
     accelerator.init_trackers(os.path.split(__file__)[-1].split(".")[0])
     accelerator.print(objstr(config))
 
@@ -184,7 +115,7 @@ if __name__ == "__main__":
         in_channels=1,
         out_channels=2,
         embed_dim=96,
-        embedding_dim=216,
+        embedding_dim=64,
         channels=(24, 48, 60),
         blocks=(1, 2, 3, 2),
         heads=(1, 2, 4, 4),
@@ -210,19 +141,6 @@ if __name__ == "__main__":
         ]
     )
 
-    optimizer = optim_factory.create_optimizer_v2(
-        model,
-        opt=config.trainer.optimizer,
-        weight_decay=config.trainer.weight_decay,
-        lr=config.trainer.lr,
-        betas=(0.9, 0.95),
-    )
-    scheduler = LinearWarmupCosineAnnealingLR(
-        optimizer,
-        warmup_epochs=config.trainer.warmup,
-        max_epochs=config.trainer.num_epochs,
-    )
-
     step = 0
     best_epoch = -1
     val_step = 0
@@ -231,21 +149,18 @@ if __name__ == "__main__":
     model = load_pretrain_model(
         # f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/best/pytorch_model.bin",
         f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best/pytorch_model.bin",
+        # f"J:/Program/Slim-UNETR/output/231215_1_res_128_batch_4/ckpt/best/pytorch_model.bin",
         model,
         accelerator,
     )
-    '''
-    model, optimizer, scheduler, train_loader, val_loader = accelerator.prepare(
-        model, optimizer, scheduler, train_loader, val_loader
-    )
-    '''
 
-    model, optimizer, scheduler, val_loader = accelerator.prepare(
-        model, optimizer, scheduler, val_loader
+    model, val_loader = accelerator.prepare(
+        model, val_loader
     )
 
     # start inference
     accelerator.print("Start Val！")
+    print(torch.cuda.memory_allocated() / 1024 / 1024)
 
     gen_seg_result(
         model,
@@ -256,10 +171,27 @@ if __name__ == "__main__":
         val_step,
         post_trans,
         accelerator,
+        False
     )
 
     done = time.time()
     elapsed = done - start
     print(elapsed)
+    print(torch.cuda.max_memory_allocated() / 1024 / 1024)
 
     sys.exit(1)
+
+    '''
+    np.save('/data/jionkim/Slim_UNETR/inference/intf_img_' + str(i).zfill(2) + '.npy', img)
+    np.save('/data/jionkim/Slim_UNETR/inference/intf_lab1_gen_' + str(i).zfill(2) + '.npy', lab1_gen)
+    np.save('/data/jionkim/Slim_UNETR/inference/intf_lab2_gen_' + str(i).zfill(2) + '.npy', lab2_gen)
+    np.save('/data/jionkim/Slim_UNETR/inference/intf_lab1_gt_' + str(i).zfill(2) + '.npy', lab1_gt)
+    np.save('/data/jionkim/Slim_UNETR/inference/intf_lab2_gt_' + str(i).zfill(2) + '.npy', lab2_gt)
+    '''
+    '''
+    np.save('J:/Program/Slim-UNETR/inference/intf_img_' + str(i).zfill(2) + '.npy', img)
+    np.save('J:/Program/Slim-UNETR/inference/intf_lab1_gen_' + str(i).zfill(2) + '.npy', lab1_gen)
+    np.save('J:/Program/Slim-UNETR/inference/intf_lab2_gen_' + str(i).zfill(2) + '.npy', lab2_gen)
+    np.save('J:/Program/Slim-UNETR/inference/intf_lab1_gt_' + str(i).zfill(2) + '.npy', lab1_gt)
+    np.save('J:/Program/Slim-UNETR/inference/intf_lab2_gt_' + str(i).zfill(2) + '.npy', lab2_gt)
+    '''
