@@ -271,3 +271,27 @@ def get_dataloader_sap(
     )
 
     return train_loader, val_loader
+
+def get_dataloader_sap_val_only(
+    config: EasyDict
+) -> Tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
+
+    test_images = load_dataset_test_images_sap(config.data_root)
+
+    _, val_transform = get_transforms(config)
+
+    val_dataset = monai.data.Dataset(
+        data=test_images,
+        transform=val_transform,
+    )
+
+    batch_size = config.trainer.batch_size
+
+    val_loader = monai.data.DataLoader(
+        val_dataset,
+        num_workers=config.trainer.num_workers,
+        batch_size=batch_size,
+        shuffle=False,
+    )
+
+    return val_loader

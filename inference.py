@@ -13,7 +13,7 @@ from objprint import objstr
 from timm.optim import optim_factory
 
 from src import utils
-from src.loader import get_dataloader, get_dataloader_val_only
+from src.loader import get_dataloader, get_dataloader_val_only, get_dataloader_sap, get_dataloader_sap_val_only
 from src.optimizer import LinearWarmupCosineAnnealingLR
 from src.SlimUNETR.SlimUNETR import SlimUNETR
 from src.utils import Logger, load_pretrain_model
@@ -83,9 +83,6 @@ def val_one_epoch(
         val_outputs = [post_trans(i) for i in logits]
         val_outputs_ups = []
 
-        # print(val_outputs.__len__())
-        # print(val_outputs[0].shape)
-
         # Upsample to 256
         if upsample:
             for val_output in val_outputs:
@@ -110,12 +107,6 @@ def val_one_epoch(
 
                 lab_res_stores = lab_res_stores.cuda()
                 val_outputs_ups.append(lab_res_stores)
-        '''
-        print(val_outputs_ups.__len__())
-        print(val_outputs_ups[0].shape)
-        print(val_outputs_ups[0][0, :, :, :].max())
-        print(val_outputs_ups[0][1, :, :, :].max())
-        '''
 
         for metric_name in metrics:
             if upsample:
@@ -166,7 +157,7 @@ def val_one_epoch(
 
 if __name__ == "__main__":
 
-    device_num = 3
+    device_num = 2
     torch.cuda.set_device(device_num)
 
     # load yml
@@ -195,8 +186,10 @@ if __name__ == "__main__":
     image_size = config.trainer.image_size
 
     accelerator.print("load dataset...")
-    train_loader, val_loader = get_dataloader(config)
+    _, val_loader = get_dataloader(config)
+    # _, val_loader = get_dataloader_sap(config)
     # val_loader = get_dataloader_val_only(config)
+    # val_loader = get_dataloader_sap_val_only(config)
 
     inference = monai.inferers.SlidingWindowInferer(
         roi_size=ensure_tuple_rep(image_size, 3),
@@ -230,18 +223,6 @@ if __name__ == "__main__":
         ]
     )
 
-    optimizer = optim_factory.create_optimizer_v2(
-        model,
-        opt=config.trainer.optimizer,
-        weight_decay=config.trainer.weight_decay,
-        lr=config.trainer.lr,
-        betas=(0.9, 0.95),
-    )
-    scheduler = LinearWarmupCosineAnnealingLR(
-        optimizer,
-        warmup_epochs=config.trainer.warmup,
-        max_epochs=config.trainer.num_epochs,
-    )
     step = 0
     best_eopch = -1
     val_step = 0
@@ -254,26 +235,8 @@ if __name__ == "__main__":
         accelerator,
     )
 
-    model, optimizer, scheduler, train_loader, val_loader = accelerator.prepare(
-        model, optimizer, scheduler, train_loader, val_loader
-    )
-    
-    # start inference
-    accelerator.print("Start Val！")
-
-    _ = warm_up(
-        model,
-        loss_functions,
-        train_loader,
-        optimizer,
-        scheduler,
-        accelerator,
-        0,
-        step,
-    )
-
-    model, optimizer, scheduler, val_loader = accelerator.prepare(
-        model, optimizer, scheduler, val_loader
+    model, val_loader = accelerator.prepare(
+        model, val_loader
     )
 
     dice_acc, dice_class, hd95_acc, hd95_class = val_one_epoch(
@@ -286,16 +249,10 @@ if __name__ == "__main__":
         accelerator,
         False,
     )
-    accelerator.save_state(
-        # output_dir=f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/best/new/"
-        output_dir=f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best/new"
-    )
+
     accelerator.print(f"dice acc: {dice_acc}")
     accelerator.print(f"dice class : {dice_class}")
     accelerator.print(f"hd95 acc: {hd95_acc}")
     accelerator.print(f"hd95 class : {hd95_class}")
-    accelerator.save_state(
-        # output_dir=f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/best"
-        output_dir=f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best"
-    )
+
     sys.exit(1)
