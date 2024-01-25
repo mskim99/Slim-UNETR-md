@@ -40,6 +40,9 @@ def gen_seg_result(
     # inference
     time_accum = 0
     model.eval()
+    
+    savePath = os.path.join(config.work_dir,'generation',config.finetune.checkpoint)
+    os.makedirs(savePath,exist_ok=True)
 
     for i, image_batch in enumerate(val_loader):
 
@@ -76,11 +79,11 @@ def gen_seg_result(
             lab_gen = val_outputs[0].cpu().detach().numpy().astype(bool)
 
         lab_gt = image_batch["label"][0].cpu().detach().numpy().astype(bool)
-
-        np.save('./inference/intf_img_' + str(i).zfill(2) + '.npy', img)
-        np.save('./inference/intf_lab_gen_' + str(i).zfill(2) + '.npy', lab_gen)
-        np.save('./inference/intf_lab_gt_' + str(i).zfill(2) + '.npy', lab_gt)
-
+        
+        np.save(os.path.join(savePath,f'inf_img_{i:02}.npy'),img)
+        np.save(os.path.join(savePath,f'inf_lab_gen_{i:02}.npy'),lab_gen)
+        np.save(os.path.join(savePath,f'inf_lab_gt_{i:02}.npy'),lab_gt)
+        
         accelerator.print(f"[{i + 1}/{len(val_loader)}] Validation Loading", flush=True)
         step += 1
 
@@ -111,6 +114,7 @@ if __name__ == "__main__":
     accelerator.print(objstr(config))
 
     accelerator.print("load model...")
+    '''
     model = SlimUNETR(
         in_channels=1,
         out_channels=2,
@@ -121,6 +125,8 @@ if __name__ == "__main__":
         heads=(1, 2, 4, 4),
         r=(4, 2, 2, 1),
         dropout=0.3)
+    '''
+    model = SlimUNETR(**config.finetune.slim_unetr)
     image_size = config.trainer.image_size
 
     accelerator.print("load dataset...")
@@ -148,7 +154,8 @@ if __name__ == "__main__":
     # load pre-train model
     model = load_pretrain_model(
         # f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/best/pytorch_model.bin",
-        f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best/pytorch_model.bin",
+        os.path.join(f'{config.work_dir}',f'{config.generation.pathseg}','model_store',f'{config.finetune.checkpoint}',f'{("epoch_"+f"{config.generation.epoch:05d}") if isinstance(config.generation.epoch, int) else "best"}','pytorch_model.bin'),
+        #f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best/pytorch_model.bin",
         # f"J:/Program/Slim-UNETR/output/231215_1_res_128_batch_4/ckpt/best/pytorch_model.bin",
         model,
         accelerator,
@@ -160,7 +167,7 @@ if __name__ == "__main__":
 
     # start inference
     accelerator.print("Start Val！")
-    print(torch.cuda.memory_allocated() / 1024 / 1024)
+    print(torch.cuda.memory_allocated() / 1024 / 1024,' MiB')
 
     gen_seg_result(
         model,
@@ -177,7 +184,7 @@ if __name__ == "__main__":
     done = time.time()
     elapsed = done - start
     print(elapsed)
-    print(torch.cuda.max_memory_allocated() / 1024 / 1024)
+    print(torch.cuda.max_memory_allocated() / 1024 / 1024,' MiB')
 
     sys.exit(1)
 
@@ -195,3 +202,11 @@ if __name__ == "__main__":
     np.save('J:/Program/Slim-UNETR/inference/intf_lab1_gt_' + str(i).zfill(2) + '.npy', lab1_gt)
     np.save('J:/Program/Slim-UNETR/inference/intf_lab2_gt_' + str(i).zfill(2) + '.npy', lab2_gt)
     '''
+
+'''
+def save_inference(i:int, imageList:list, mode:str = None, separate:bool = False):
+    
+            np.save('./inference/intf_img_' + str(i).zfill(2) + '.npy', img)
+        np.save('./inference/intf_lab_gen_' + str(i).zfill(2) + '.npy', lab_gen)
+        np.save('./inference/intf_lab_gt_' + str(i).zfill(2) + '.npy', lab_gt)
+'''

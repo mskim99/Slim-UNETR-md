@@ -1,4 +1,18 @@
 data_root: /data/jionkim/_TTE_images_res_192/
+work_dir: /data/jionkim/Slim_UNETR/
+
+finetune:
+  checkpoint: brain2021_4
+  slim_unetr:
+    in_channels: 1
+    out_channels: 2
+    embed_dim: 96 
+    embedding_dim: 64 #216 
+    channels: [ 24, 48, 60 ]
+    blocks: [ 1, 2, 3, 2 ]
+    heads: [ 1, 2, 4, 4 ]
+    r: [ 4, 2, 2, 1 ]
+    dropout: 0.3
 
 trainer:
   num_epochs: 3000
@@ -14,7 +28,31 @@ trainer:
   pred_ratio_var: 0
   num_workers: 16
   image_size: 192
+  save_cycle: 100 #저장 간격
   resume: False
 
-finetune:
-  checkpoint: brain2021_4
+inference:
+  epoch: best
+  pathseg: train
+  #finetune.checkpoint 과 같은 이름의 train folder load
+
+generation:
+  epoch: best
+  pathseg: train
+  #finetune.checkpoint 과 같은 이름의 train folder load
+
+# 폴더 구조
+#
+#    /Slim_UNETR(work_dir)
+#        ㅣ
+#        ㅏ train
+#        ㅣ   ㅏ logs
+#        ㅣ   ㅏ model_store
+#        ㅣ
+#        ㅏ inference
+#        ㅣ   ㅏ logs
+#        ㅣ   ㅏ model_store
+#        ㅣ
+#        ㅏ generation
+#        ㅣ   ㅏ logs
+#        ㅣ   ㅏ model_store

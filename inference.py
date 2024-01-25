@@ -166,13 +166,15 @@ if __name__ == "__main__":
     )
 
     utils.same_seeds(50)
-    logging_dir = os.getcwd() + "/logs/" + str(datetime.now())
+    #logging_dir = os.getcwd() + "/logs/" + str(datetime.now())
+    logging_dir = os.path.join(f'{config.work_dir}','inference','logs',f'{config.finetune.checkpoint}',f'{str(datetime.now())}')
     accelerator = Accelerator(cpu=False)
     Logger(logging_dir if accelerator.is_local_main_process else None)
     accelerator.init_trackers(os.path.split(__file__)[-1].split(".")[0])
     accelerator.print(objstr(config))
 
     accelerator.print("load model...")
+    '''
     model = SlimUNETR(
         in_channels=1,
         out_channels=2,
@@ -183,6 +185,8 @@ if __name__ == "__main__":
         heads=(1, 2, 4, 4),
         r=(4, 2, 2, 1),
         dropout=0.3)
+    '''
+    model = SlimUNETR(**config.finetune.slim_unetr)
     image_size = config.trainer.image_size
 
     accelerator.print("load dataset...")
@@ -230,7 +234,8 @@ if __name__ == "__main__":
     # load pre-train model
     model = load_pretrain_model(
         # f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/best/pytorch_model.bin",
-        f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best/pytorch_model.bin",
+        #f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best/pytorch_model.bin",
+        os.path.join(f'{config.work_dir}',f'{config.inference.pathseg}','model_store',f'{config.finetune.checkpoint}',f'{("epoch_"+f"{config.inference.epoch:05d}") if isinstance(config.inference.epoch, int) else "best"}','pytorch_model.bin'),
         model,
         accelerator,
     )
@@ -255,4 +260,4 @@ if __name__ == "__main__":
     accelerator.print(f"hd95 acc: {hd95_acc}")
     accelerator.print(f"hd95 class : {hd95_class}")
 
-    sys.exit(1)
+    sys.exit(0)

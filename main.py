@@ -164,7 +164,8 @@ if __name__ == "__main__":
     )
 
     same_seeds(50)
-    logging_dir = os.getcwd() + "/logs/" + str(datetime.now())
+    #logging_dir = os.getcwd() + "/logs/" + str(datetime.now())
+    logging_dir = os.path.join(f'{config.work_dir}','train','logs',f'{config.finetune.checkpoint}',f'{str(datetime.now())}')
     accelerator = Accelerator(
         cpu=False, log_with=["tensorboard"], project_dir=logging_dir
     )
@@ -173,6 +174,7 @@ if __name__ == "__main__":
     accelerator.print(objstr(config))
 
     accelerator.print("Load Model...")
+    '''
     model = SlimUNETR(
         in_channels=1,
         out_channels=2,
@@ -184,6 +186,8 @@ if __name__ == "__main__":
         r=(4, 2, 2, 1),
         dropout=0.3,
     )
+    '''
+    model = SlimUNETR(**config.finetune.slim_unetr)
     image_size = config.trainer.image_size
 
     accelerator.print("Load Dataloader...")
@@ -286,15 +290,20 @@ if __name__ == "__main__":
         if mean_acc > best_acc:
             accelerator.save_state(
                 # output_dir=f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/best"
-                output_dir=f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best"
+                #output_dir=f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/best"
+                output_dir=os.path.join(f'{config.work_dir}','train','model_store',f'{config.finetune.checkpoint}','best'),
+                safe_serialization = False
             )
             best_acc = mean_acc
             best_class = batch_acc
             best_eopch = epoch
-        accelerator.save_state(
-            # output_dir=f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/epoch_{epoch}"
-            output_dir=f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/epoch_{epoch}"
-        )
+        if (epoch+1) % max(config.trainer.save_cycle,1)==0 or (epoch+1)==config.trainer.num_epochs:
+            accelerator.save_state(
+                # output_dir=f"{os.getcwd()}/model_store/{config.finetune.checkpoint}/epoch_{epoch}"
+                #output_dir=f"/data/jionkim/Slim_UNETR/model_store/{config.finetune.checkpoint}/epoch_{epoch}"
+                output_dir=os.path.join(f'{config.work_dir}','train','model_store',f'{config.finetune.checkpoint}',f'epoch_{epoch+1:05d}'),
+                safe_serialization = False
+            )
 
     accelerator.print(f"best dice mean acc: {best_acc}")
     accelerator.print(f"best dice accs: {best_class}")
