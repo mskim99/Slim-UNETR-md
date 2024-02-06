@@ -53,7 +53,7 @@ class ConvertToMultiChannelClassesd(monai.transforms.MapTransform):
 def load_dataset_images(root):
     images_list = []
 
-    for i in range (0, 267):
+    for i in range (0, 266):
         img = root + "image/image_" + str(i).zfill(3) + ".nii.gz"
         seg_img = root + "label/label_" + str(i).zfill(3) + ".nii.gz"
         images_list.append(
@@ -113,21 +113,25 @@ def get_transforms(
             monai.transforms.EnsureTyped(keys=["image", "label"]),
             ConvertToMultiChannelClassesd(keys=["label"]),
             monai.transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
-            monai.transforms.SpatialPadD(
-                keys=["image", "label"],
-                spatial_size=(255, 255, config.trainer.image_size),
-                method="symmetric",
-                mode="constant",
-            ),
-            monai.transforms.Spacingd(
-                keys=["image", "label"],
-                pixdim=(1.0, 1.0, 1.0),
-                mode=("bilinear", "nearest"),
-            ),
-            monai.transforms.CenterSpatialCropD(
-                keys=["image", "label"],
-                roi_size=ensure_tuple_rep(config.trainer.image_size, 3),
-            ),
+            #Dynamics
+            #monai.transforms.CropForegroundd(keys=["image","label"], source_key="label"),
+            #RectPad(keys=["image","label"]),
+            #Dynamincs
+            # monai.transforms.SpatialPadD(
+            #     keys=["image", "label"],
+            #     spatial_size=(255, 255, config.trainer.image_size),
+            #     method="symmetric",
+            #     mode="constant",
+            # ),
+            # monai.transforms.Spacingd(
+            #     keys=["image", "label"],
+            #     pixdim=(1.0, 1.0, 1.0),
+            #     mode=("bilinear", "nearest"),
+            # ),
+            # monai.transforms.CenterSpatialCropD(
+            #     keys=["image", "label"],
+            #     roi_size=ensure_tuple_rep(config.trainer.image_size, 3),
+            # ),
             monai.transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
@@ -162,11 +166,16 @@ def get_transforms(
             monai.transforms.EnsureTyped(keys=["image", "label"]),
             ConvertToMultiChannelClassesd(keys="label"),
             monai.transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
-            monai.transforms.Spacingd(
-                keys=["image", "label"],
-                pixdim=(1.0, 1.0, 1.0),
-                mode=("bilinear", "nearest"),
-            ),
+            #Dynamics
+            #monai.transforms.CropForegroundd(keys=["image","label"], source_key="label"),
+            #RectPad(keys=["image","label"]),
+            #Dynamincs
+            
+            # monai.transforms.Spacingd(
+            #     keys=["image", "label"],
+            #     pixdim=(1.0, 1.0, 1.0),
+            #     mode=("bilinear", "nearest"),
+            # ),
             monai.transforms.NormalizeIntensityd(
                 keys="image", nonzero=True, channel_wise=True
             ),
@@ -197,6 +206,7 @@ def get_dataloader(
         num_workers=config.trainer.num_workers,
         batch_size=config.trainer.batch_size,
         shuffle=True,
+        pin_memory=False
     )
 
     batch_size = config.trainer.batch_size
@@ -206,6 +216,7 @@ def get_dataloader(
         num_workers=config.trainer.num_workers,
         batch_size=batch_size,
         shuffle=False,
+        pin_memory=False
     )
 
     return train_loader, val_loader
@@ -231,6 +242,7 @@ def get_dataloader_val_only(
         num_workers=config.trainer.num_workers,
         batch_size=batch_size,
         shuffle=False,
+        pin_memory=False
     )
 
     return val_loader
@@ -295,3 +307,19 @@ def get_dataloader_sap_val_only(
     )
 
     return val_loader
+
+
+class RectPad:
+    def __init__(self,keys):
+        self.keys = keys
+    
+    def __call__(self, data):
+        debug = False
+
+        max_size = max([max(data[key].shape[1:]) for key in self.keys])
+        if debug: print("max_size: ",max_size,"\nshape: ",data[key].shape)
+        
+        for key in self.key:
+            padded_image = monai.transforms.SpatialPadd(spatial_size=(max_size, max_size),method="symmetric")(data[key])
+            data[key] = padded_image
+        
